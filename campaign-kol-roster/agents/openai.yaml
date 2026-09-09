@@ -1,0 +1,4 @@
+interface:
+  display_name: "Campaign KOL 名单架构"
+  short_description: "为 Campaign 建立代理提报表、内部汇总表与手动双向同步。"
+  default_prompt: "请为这个 Campaign 建立可复用的 KOL 代理提报与内部汇总架构。"
