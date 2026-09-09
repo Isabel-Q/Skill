@@ -32,7 +32,7 @@ Unless the user specifies otherwise:
 - Keep `同步控制`, `操作说明`, `标准说明`, and `粉丝量级参考` as separate master tabs.
 - Agency workbooks keep only `汇总名单` and an agency-safe `标准说明`. Do not expose other agencies, source provenance, internal IDs, KOL pool status, duplicate counts, the master tier-reference tab, or internal operating instructions.
 - Mark agency `推进合作` and `DM Comments` header cells orange because they are master-owned fields. Add a note explaining that the internal campaign team maintains them and sync writes them back.
-- Use a manual `立即同步` button/menu. Do not add a timer or scheduled trigger unless explicitly requested.
+- Use one compact, visible drawing/image button assigned to `runSync`, with the custom menu as a fallback. Never place a second cell-styled faux button behind or beside it. Do not add a timer or scheduled trigger unless explicitly requested.
 
 ## Data ownership and direction
 

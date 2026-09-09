@@ -46,7 +46,9 @@ Because agency sheets intentionally have no internal ID, simultaneous changes to
 Expose `runSync` through:
 
 - a custom `KOL同步 → 立即同步` menu
-- an assigned image/drawing button on `同步控制`
+- exactly one assigned image/drawing button on `同步控制`
+
+Keep the visible button compact and place it beside or directly below the latest status block without covering the agency table. A cell-colored rectangle cannot execute Apps Script and must not be presented as a second button. Moving or resizing the assigned drawing must preserve its `runSync` assignment.
 
 The control sheet stores the latest timestamp, status, and `新增 N 条；更新 N 条`. Use a document lock to prevent simultaneous runs. Use no timed trigger by default.
 
