@@ -29,8 +29,9 @@ Unless the user specifies otherwise:
 - Keep every agency submission as an independent record. Never deduplicate away a submission.
 - Place multi-agency submissions for the same KOL next to one another in the master.
 - Use one internal master workbook and one agency-facing workbook per agency.
-- Keep `标准说明`, `粉丝量级参考`, and `同步控制` as separate master tabs.
-- Agency workbooks keep their own roster plus an agency-safe `标准说明` and the tier reference. Do not expose other agencies, source provenance, internal IDs, KOL pool status, or duplicate counts.
+- Keep `同步控制`, `操作说明`, `标准说明`, and `粉丝量级参考` as separate master tabs.
+- Agency workbooks keep only `汇总名单` and an agency-safe `标准说明`. Do not expose other agencies, source provenance, internal IDs, KOL pool status, duplicate counts, the master tier-reference tab, or internal operating instructions.
+- Mark agency `推进合作` and `DM Comments` header cells orange because they are master-owned fields. Add a note explaining that the internal campaign team maintains them and sync writes them back.
 - Use a manual `立即同步` button/menu. Do not add a timer or scheduled trigger unless explicitly requested.
 
 ## Data ownership and direction
@@ -70,6 +71,12 @@ Each master candidate may be claimed only once per sync. After matching, use the
 
 Resolve every synchronized field from the live header row. Column reordering must be safe. Before writing any roster data, validate all required master and agency headers; if a required header is missing/renamed or appears more than once, stop the entire sync and report the exact workbook/header problem. Never fall back to fixed column numbers.
 
+## Agency lifecycle
+
+Read [references/agency-lifecycle.md](references/agency-lifecycle.md) whenever adding, replacing, pausing, or removing an agency. A new agency is not connected merely because its workbook exists: create it from a verified agency template, clear template records without deleting native structures, add its unique name and spreadsheet ID to `AGENTS`, update the master control list, and run a blank-sheet sync check before sharing it.
+
+Keep an internal `操作说明` tab in every master workbook. It must document the campaign-specific template link, the `AGENTS` configuration step, data direction, first-sync acceptance criteria, and common failure modes. Never copy this tab into agency-facing workbooks.
+
 ## Build and validation
 
 Read [references/implementation-checklist.md](references/implementation-checklist.md) before changing Drive structure, publishing agency sheets, or declaring completion.
@@ -77,10 +84,11 @@ Read [references/implementation-checklist.md](references/implementation-checklis
 Always verify:
 
 - source row counts reconcile with master records without deduplication
-- master has 26 columns A:Z and each agency roster has 20 columns A:T
+- master contains the 26 canonical headers and each agency roster contains the 20 canonical agency headers; physical order may change
 - synchronized values are resolved by canonical header name, not physical column position
 - moving a required column succeeds; renaming/removing/duplicating a required header fails before any roster write
 - deleting internal agency columns adjusts native table ranges, dropdowns, conditional formatting, and formulas
+- agency workbooks contain only `汇总名单` and `标准说明`, and their H/I header cells are orange with the master-owned note
 - `推进合作 = 是` colors the entire agency/master row light green
 - a test sync completes with zero unexpected additions and the expected update count
 - internal fields and other-agency information are absent from every agency-facing workbook
