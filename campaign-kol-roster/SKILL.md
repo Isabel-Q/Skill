@@ -68,6 +68,8 @@ The matching priority must be:
 
 Each master candidate may be claimed only once per sync. After matching, use the claimed internal record ID for that run's master-to-agency writeback.
 
+Resolve every synchronized field from the live header row. Column reordering must be safe. Before writing any roster data, validate all required master and agency headers; if a required header is missing/renamed or appears more than once, stop the entire sync and report the exact workbook/header problem. Never fall back to fixed column numbers.
+
 ## Build and validation
 
 Read [references/implementation-checklist.md](references/implementation-checklist.md) before changing Drive structure, publishing agency sheets, or declaring completion.
@@ -76,6 +78,8 @@ Always verify:
 
 - source row counts reconcile with master records without deduplication
 - master has 26 columns A:Z and each agency roster has 20 columns A:T
+- synchronized values are resolved by canonical header name, not physical column position
+- moving a required column succeeds; renaming/removing/duplicating a required header fails before any roster write
 - deleting internal agency columns adjusts native table ranges, dropdowns, conditional formatting, and formulas
 - `推进合作 = 是` colors the entire agency/master row light green
 - a test sync completes with zero unexpected additions and the expected update count

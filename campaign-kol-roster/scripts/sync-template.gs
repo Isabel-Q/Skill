@@ -1,9 +1,24 @@
 const MASTER_ID = __MASTER_ID__;
 const SHEET_NAME = __SHEET_NAME__;
 const CONTROL_SHEET = __CONTROL_SHEET__;
-const MASTER_COLS = 26;
-const CHILD_COLS = 20;
 const AGENTS = __AGENTS__;
+
+const MASTER_HEADERS = [
+  '国家','达人名称','平台','账号链接','内容类型','粉丝量级','受众画像','KOL池',
+  '推进合作','DM Comments','报价（USD）','粉丝数','近15条平均播放量','播放率',
+  '互动量','互动率','竞品合作情况','达人简介及推荐理由','交付内容','提报日期',
+  'Remark','代理','重复提报代理数','原始文件','原始行号','提报记录ID'
+];
+const CHILD_HEADERS = [
+  '国家','达人名称','平台','账号链接','内容类型','粉丝量级','受众画像','推进合作',
+  'DM Comments','报价（USD）','粉丝数','近15条平均播放量','播放率','互动量',
+  '互动率','竞品合作情况','达人简介及推荐理由','交付内容','提报日期','Remark'
+];
+const AGENCY_FIELDS = [
+  '国家','达人名称','平台','账号链接','内容类型','粉丝量级','受众画像','报价（USD）',
+  '粉丝数','近15条平均播放量','播放率','互动量','互动率','竞品合作情况',
+  '达人简介及推荐理由','交付内容','提报日期','Remark'
+];
 const TIERS = __TIERS__;
 
 function onOpen() {
@@ -23,84 +38,129 @@ function runSync() {
     const masterSheet = masterBook.getSheetByName(SHEET_NAME);
     if (!masterSheet) throw new Error('找不到汇总名单工作表');
 
-    const masterLast = Math.max(masterSheet.getLastRow(), 1);
-    let masterRows = masterLast > 1
-      ? masterSheet.getRange(2, 1, masterLast - 1, MASTER_COLS).getValues()
-      : [];
-    masterRows = masterRows.filter(hasMasterRecord_);
-
-    const childState = [];
-    AGENTS.forEach(function(agent) {
+    // Validate every header before any roster is written. A moved column is safe;
+    // a missing, renamed, or duplicated required header stops the whole sync.
+    const masterSchema = readSchema_(masterSheet, MASTER_HEADERS, '内部汇总表');
+    const agentSources = AGENTS.map(function(agent) {
       const book = SpreadsheetApp.openById(agent.id);
       const sheet = book.getSheetByName(SHEET_NAME);
       if (!sheet) throw new Error(agent.name + ' 表中找不到“' + SHEET_NAME + '”');
+      return {
+        agent:agent,
+        sheet:sheet,
+        schema:readSchema_(sheet, CHILD_HEADERS, agent.name + ' 代理表')
+      };
+    });
 
+    const masterLast = Math.max(masterSheet.getLastRow(), 1);
+    let masterRows = masterLast > 1
+      ? masterSheet.getRange(2, 1, masterLast - 1, masterSchema.width).getValues()
+      : [];
+    masterRows = masterRows.filter(function(row) {
+      return hasMasterRecord_(row, masterSchema);
+    });
+
+    const childState = [];
+    agentSources.forEach(function(source) {
+      const agent = source.agent;
+      const sheet = source.sheet;
+      const schema = source.schema;
       const last = Math.max(sheet.getLastRow(), 1);
-      const rows = last > 1 ? sheet.getRange(2, 1, last - 1, CHILD_COLS).getValues() : [];
-      const matcher = buildMatcher_(masterRows, agent.name);
+      const rows = last > 1
+        ? sheet.getRange(2, 1, last - 1, schema.width).getValues()
+        : [];
+      const displayRows = last > 1
+        ? sheet.getRange(2, 1, last - 1, schema.width).getDisplayValues()
+        : [];
+      const matcher = buildMatcher_(masterRows, masterSchema, agent.name);
       const ids = [];
 
       rows.forEach(function(row, offset) {
-        if (!hasChildInput_(row)) {
+        if (!hasChildInput_(row, schema)) {
           ids[offset] = '';
           return;
         }
 
-        let pos = claimMatch_(matcher, row);
+        let pos = claimMatch_(matcher, row, schema, masterSchema);
         if (pos === undefined) {
-          const next = new Array(MASTER_COLS).fill('');
-          copyChildToMaster_(row, next);
-          next[7] = '';
-          next[8] = '';
-          next[9] = '';
-          next[21] = agent.name;
-          next[22] = 1;
-          next[23] = agent.name;
-          next[24] = offset + 2;
-          next[25] = agent.name + '-' + Utilities.getUuid();
-          next[5] = tier_(next[11]);
+          const next = new Array(masterSchema.width).fill('');
+          copyFields_(row, schema, next, masterSchema, AGENCY_FIELDS, displayRows[offset]);
+          setField_(next, masterSchema, 'KOL池', '');
+          setField_(next, masterSchema, '推进合作', '');
+          setField_(next, masterSchema, 'DM Comments', '');
+          setField_(next, masterSchema, '代理', agent.name);
+          setField_(next, masterSchema, '重复提报代理数', 1);
+          setField_(next, masterSchema, '原始文件', agent.name);
+          setField_(next, masterSchema, '原始行号', offset + 2);
+          setField_(next, masterSchema, '提报记录ID', agent.name + '-' + Utilities.getUuid());
+          setField_(next, masterSchema, '粉丝量级', tier_(getField_(next, masterSchema, '粉丝数')));
           masterRows.push(next);
           pos = masterRows.length - 1;
-          registerClaim_(matcher, next, pos);
+          registerClaim_(matcher, next, masterSchema, pos);
           added++;
         } else {
           const target = masterRows[pos];
-          copyChildToMaster_(row, target);
-          target[5] = tier_(target[11]);
-          target[21] = agent.name;
-          target[23] = agent.name;
-          target[24] = offset + 2;
-          if (!clean_(target[25])) target[25] = agent.name + '-' + Utilities.getUuid();
+          copyFields_(row, schema, target, masterSchema, AGENCY_FIELDS, displayRows[offset]);
+          setField_(target, masterSchema, '粉丝量级', tier_(getField_(target, masterSchema, '粉丝数')));
+          setField_(target, masterSchema, '代理', agent.name);
+          setField_(target, masterSchema, '原始文件', agent.name);
+          setField_(target, masterSchema, '原始行号', offset + 2);
+          if (!clean_(getField_(target, masterSchema, '提报记录ID'))) {
+            setField_(target, masterSchema, '提报记录ID', agent.name + '-' + Utilities.getUuid());
+          }
           updated++;
         }
-        ids[offset] = masterRows[pos][25];
+        ids[offset] = getField_(masterRows[pos], masterSchema, '提报记录ID');
       });
-      childState.push({sheet:sheet, rows:rows, ids:ids});
+      childState.push({sheet:sheet, schema:schema, rows:rows, ids:ids});
     });
 
-    updateDuplicateCounts_(masterRows);
-    masterRows.sort(compareRows_);
+    updateDuplicateCounts_(masterRows, masterSchema);
+    masterRows.sort(function(a, b) { return compareRows_(a, b, masterSchema); });
 
     const required = masterRows.length + 1;
     if (masterSheet.getMaxRows() < required) {
       masterSheet.insertRowsAfter(masterSheet.getMaxRows(), required - masterSheet.getMaxRows());
     }
     if (masterRows.length) {
-      masterSheet.getRange(2, 1, masterRows.length, MASTER_COLS).setValues(masterRows);
+      masterSheet.getRange(2, 1, masterRows.length, masterSchema.width).setValues(masterRows);
     }
     if (masterLast - 1 > masterRows.length) {
-      masterSheet.getRange(masterRows.length + 2, 1, masterLast - 1 - masterRows.length, MASTER_COLS).clearContent();
+      masterSheet.getRange(
+        masterRows.length + 2,
+        1,
+        masterLast - 1 - masterRows.length,
+        masterSchema.width
+      ).clearContent();
     }
 
-    const masterById = indexById_(masterRows);
+    const masterById = indexById_(masterRows, masterSchema);
     childState.forEach(function(state) {
       if (!state.rows.length) return;
-      const internalValues = state.ids.map(function(id) {
-        if (!id || masterById[id] === undefined) return ['', ''];
-        const source = masterRows[masterById[id]];
-        return [source[8], source[9]];
+      const cooperation = [];
+      const comments = [];
+      state.ids.forEach(function(id) {
+        if (!id || masterById[id] === undefined) {
+          cooperation.push(['']);
+          comments.push(['']);
+          return;
+        }
+        const masterRow = masterRows[masterById[id]];
+        cooperation.push([getField_(masterRow, masterSchema, '推进合作')]);
+        comments.push([getField_(masterRow, masterSchema, 'DM Comments')]);
       });
-      state.sheet.getRange(2, 8, internalValues.length, 2).setValues(internalValues);
+      state.sheet.getRange(
+        2,
+        state.schema.index['推进合作'] + 1,
+        cooperation.length,
+        1
+      ).setValues(cooperation);
+      state.sheet.getRange(
+        2,
+        state.schema.index['DM Comments'] + 1,
+        comments.length,
+        1
+      ).setValues(comments);
     });
 
     writeStatus_(masterBook, new Date(), '成功', '新增 ' + added + ' 条；更新 ' + updated + ' 条');
@@ -120,35 +180,112 @@ function runSync() {
   }
 }
 
-function copyChildToMaster_(child, master) {
-  for (let c = 0; c <= 6; c++) master[c] = child[c];
-  for (let c = 9; c <= 19; c++) master[c + 1] = child[c];
+function readSchema_(sheet, requiredHeaders, label) {
+  const width = Math.max(sheet.getLastColumn(), 1);
+  const raw = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+  const normalizedToIndex = {};
+  const duplicateHeaders = [];
+  raw.forEach(function(header, index) {
+    const key = normalizeHeader_(header);
+    if (!key) return;
+    if (normalizedToIndex[key] !== undefined) duplicateHeaders.push(clean_(header));
+    else normalizedToIndex[key] = index;
+  });
+  if (duplicateHeaders.length) {
+    throw new Error(label + '存在重复表头：' + unique_(duplicateHeaders).join('、'));
+  }
+
+  const index = {};
+  const missing = [];
+  requiredHeaders.forEach(function(header) {
+    const pos = normalizedToIndex[normalizeHeader_(header)];
+    if (pos === undefined) missing.push(header);
+    else index[header] = pos;
+  });
+  if (missing.length) {
+    throw new Error(label + '缺少或改名了必需表头：' + missing.join('、') + '。未写入任何名单数据。');
+  }
+  return {width:width, index:index};
 }
 
-function hasMasterRecord_(row) {
-  return clean_(row[25]) || [0,1,2,3,4,5,6,10,11,12,13,14,15,16,17,18,19,20]
-    .some(function(c) { return clean_(row[c]) !== ''; });
+function normalizeHeader_(value) {
+  return clean_(value).replace(/\s+/g, ' ').toLowerCase();
 }
 
-function hasChildInput_(row) {
-  return [0,1,2,3,4,5,6,9,10,11,12,13,14,15,16,17,18,19]
-    .some(function(c) { return clean_(row[c]) !== ''; });
+function unique_(values) {
+  return values.filter(function(value, index) { return values.indexOf(value) === index; });
 }
 
-function buildMatcher_(rows, agentName) {
+function getField_(row, schema, field) {
+  return row[schema.index[field]];
+}
+
+function setField_(row, schema, field, value) {
+  row[schema.index[field]] = value;
+}
+
+function copyFields_(source, sourceSchema, target, targetSchema, fields, sourceDisplay) {
+  fields.forEach(function(field) {
+    let value = getField_(source, sourceSchema, field);
+    if (field === '提报日期' && sourceDisplay) {
+      value = dateSerialFromDisplay_(sourceDisplay[sourceSchema.index[field]]);
+    }
+    setField_(target, targetSchema, field, value);
+  });
+}
+
+function dateSerialFromDisplay_(displayValue) {
+  const text = clean_(displayValue);
+  if (!text) return '';
+  const match = text.match(/^(\d{1,4})[\/-](\d{1,2})[\/-](\d{1,4})$/);
+  if (!match) return text;
+  let year;
+  let month;
+  let day;
+  if (match[1].length === 4) {
+    year = Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+  } else {
+    month = Number(match[1]);
+    day = Number(match[2]);
+    year = Number(match[3]);
+  }
+  if (year < 100) year += 2000;
+  const utc = Date.UTC(year, month - 1, day);
+  const check = new Date(utc);
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
+    throw new Error('无法识别提报日期：' + text);
+  }
+  return (utc - Date.UTC(1899, 11, 30)) / 86400000;
+}
+
+function hasMasterRecord_(row, schema) {
+  return clean_(getField_(row, schema, '提报记录ID')) || AGENCY_FIELDS.some(function(field) {
+    return clean_(getField_(row, schema, field)) !== '';
+  });
+}
+
+function hasChildInput_(row, schema) {
+  return AGENCY_FIELDS.some(function(field) {
+    return clean_(getField_(row, schema, field)) !== '';
+  });
+}
+
+function buildMatcher_(rows, schema, agentName) {
   const matcher = {byUrl:{}, byName:{}, used:{}};
   rows.forEach(function(row, pos) {
-    if (clean_(row[21]) !== agentName) return;
-    addToMap_(matcher.byUrl, urlKey_(row), pos);
-    addToMap_(matcher.byName, nameKey_(row), pos);
+    if (clean_(getField_(row, schema, '代理')) !== agentName) return;
+    addToMap_(matcher.byUrl, urlKey_(row, schema), pos);
+    addToMap_(matcher.byName, nameKey_(row, schema), pos);
   });
   return matcher;
 }
 
-function registerClaim_(matcher, masterRow, pos) {
+function registerClaim_(matcher, masterRow, masterSchema, pos) {
   matcher.used[pos] = true;
-  addToMap_(matcher.byUrl, urlKey_(masterRow), pos);
-  addToMap_(matcher.byName, nameKey_(masterRow), pos);
+  addToMap_(matcher.byUrl, urlKey_(masterRow, masterSchema), pos);
+  addToMap_(matcher.byName, nameKey_(masterRow, masterSchema), pos);
 }
 
 function addToMap_(map, key, pos) {
@@ -157,11 +294,12 @@ function addToMap_(map, key, pos) {
   map[key].push(pos);
 }
 
-function claimMatch_(matcher, childRow) {
-  const masterShape = childAsMaster_(childRow);
-  const urlMatch = takeUnused_(matcher.byUrl[urlKey_(masterShape)], matcher.used);
+function claimMatch_(matcher, childRow, childSchema, masterSchema) {
+  const masterShape = new Array(masterSchema.width).fill('');
+  copyFields_(childRow, childSchema, masterShape, masterSchema, AGENCY_FIELDS);
+  const urlMatch = takeUnused_(matcher.byUrl[urlKey_(masterShape, masterSchema)], matcher.used);
   if (urlMatch !== undefined) return urlMatch;
-  return takeUnused_(matcher.byName[nameKey_(masterShape)], matcher.used);
+  return takeUnused_(matcher.byName[nameKey_(masterShape, masterSchema)], matcher.used);
 }
 
 function takeUnused_(positions, used) {
@@ -176,16 +314,10 @@ function takeUnused_(positions, used) {
   return undefined;
 }
 
-function childAsMaster_(child) {
-  const row = new Array(MASTER_COLS).fill('');
-  copyChildToMaster_(child, row);
-  return row;
-}
-
-function indexById_(rows) {
+function indexById_(rows, schema) {
   const result = {};
   rows.forEach(function(row, i) {
-    const id = clean_(row[25]);
+    const id = clean_(getField_(row, schema, '提报记录ID'));
     if (id) result[id] = i;
   });
   return result;
@@ -200,40 +332,52 @@ function tier_(followers) {
   return '';
 }
 
-function updateDuplicateCounts_(rows) {
+function updateDuplicateCounts_(rows, schema) {
   const map = {};
   rows.forEach(function(row) {
-    const key = identityKey_(row);
+    const key = identityKey_(row, schema);
     if (!map[key]) map[key] = {};
-    map[key][clean_(row[21])] = true;
+    map[key][clean_(getField_(row, schema, '代理'))] = true;
   });
   rows.forEach(function(row) {
-    row[22] = Object.keys(map[identityKey_(row)] || {}).filter(Boolean).length || 1;
+    const count = Object.keys(map[identityKey_(row, schema)] || {}).filter(Boolean).length || 1;
+    setField_(row, schema, '重复提报代理数', count);
   });
 }
 
-function urlKey_(row) {
-  const url = clean_(row[3]).toLowerCase()
+function urlKey_(row, schema) {
+  const url = clean_(getField_(row, schema, '账号链接')).toLowerCase()
     .replace(/^https?:\/\//, '')
     .replace(/^www\./, '')
     .replace(/[?#].*$/, '')
     .replace(/\/$/, '');
-  return url ? clean_(row[2]).toLowerCase() + '|' + url : '';
+  return url ? clean_(getField_(row, schema, '平台')).toLowerCase() + '|' + url : '';
 }
 
-function nameKey_(row) {
-  const name = clean_(row[1]).toLowerCase();
+function nameKey_(row, schema) {
+  const name = clean_(getField_(row, schema, '达人名称')).toLowerCase();
   if (!name) return '';
-  return clean_(row[0]).toLowerCase() + '|' + clean_(row[2]).toLowerCase() + '|' + name;
+  return clean_(getField_(row, schema, '国家')).toLowerCase() + '|' +
+    clean_(getField_(row, schema, '平台')).toLowerCase() + '|' + name;
 }
 
-function identityKey_(row) {
-  return urlKey_(row) || nameKey_(row);
+function identityKey_(row, schema) {
+  return urlKey_(row, schema) || nameKey_(row, schema);
 }
 
-function compareRows_(a, b) {
-  const ka = [clean_(a[0]), clean_(a[1]).toLowerCase(), clean_(a[2]), clean_(a[21])].join('|');
-  const kb = [clean_(b[0]), clean_(b[1]).toLowerCase(), clean_(b[2]), clean_(b[21])].join('|');
+function compareRows_(a, b, schema) {
+  const ka = [
+    clean_(getField_(a, schema, '国家')),
+    clean_(getField_(a, schema, '达人名称')).toLowerCase(),
+    clean_(getField_(a, schema, '平台')),
+    clean_(getField_(a, schema, '代理'))
+  ].join('|');
+  const kb = [
+    clean_(getField_(b, schema, '国家')),
+    clean_(getField_(b, schema, '达人名称')).toLowerCase(),
+    clean_(getField_(b, schema, '平台')),
+    clean_(getField_(b, schema, '代理'))
+  ].join('|');
   return ka.localeCompare(kb, 'zh-Hans');
 }
 
