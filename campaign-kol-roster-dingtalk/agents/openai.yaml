@@ -1,0 +1,4 @@
+interface:
+  display_name: "钉钉 Campaign KOL 名单"
+  short_description: "搭建钉钉 AI 表格的 KOL 汇总与代理协作模板"
+  default_prompt: "请为这个 campaign 搭建钉钉 AI 表格 KOL 名单架构。"
