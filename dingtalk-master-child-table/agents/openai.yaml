@@ -1,0 +1,4 @@
+interface:
+  display_name: "钉钉配置驱动总表系统"
+  short_description: "通过可编辑字段配置搭建钉钉 AI 表格总表、子表与同步规则"
+  default_prompt: "请使用保留的 Case，为我搭建一套钉钉 AI 表格总表/子表系统，并按我的用途调整字段配置。"
