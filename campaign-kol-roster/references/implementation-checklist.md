@@ -43,7 +43,7 @@
 - Add `onOpen` menu and assign `runSync` to the control-sheet button.
 - Verify there is exactly one visible executable button, it is compact, it does not overlap the agency list, and no cell-styled duplicate remains.
 - Complete standard Cloud OAuth configuration only if required.
-- Run once after structural edits. The expected result for an unchanged campaign is `新增 0` and `更新 = total agency rows`.
+- Run once after structural edits. The expected result for an unchanged campaign is `新增 0`, `实际变更 0`, and `核对 = total populated agency rows`.
 
 ## Final verification
 

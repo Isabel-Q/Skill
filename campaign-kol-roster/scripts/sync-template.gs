@@ -32,7 +32,8 @@ function runSync() {
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
   let added = 0;
-  let updated = 0;
+  let changed = 0;
+  let checked = 0;
   try {
     const masterBook = SpreadsheetApp.openById(MASTER_ID);
     const masterSheet = masterBook.getSheetByName(SHEET_NAME);
@@ -80,8 +81,9 @@ function runSync() {
           ids[offset] = '';
           return;
         }
+        checked++;
 
-        let pos = claimMatch_(matcher, row, schema, masterSchema);
+        let pos = claimMatch_(matcher, row, schema, masterSchema, offset + 2);
         if (pos === undefined) {
           const next = new Array(masterSchema.width).fill('');
           copyFields_(row, schema, next, masterSchema, AGENCY_FIELDS, displayRows[offset]);
@@ -100,6 +102,7 @@ function runSync() {
           added++;
         } else {
           const target = masterRows[pos];
+          const before = target.slice();
           copyFields_(row, schema, target, masterSchema, AGENCY_FIELDS, displayRows[offset]);
           setField_(target, masterSchema, '粉丝量级', tier_(getField_(target, masterSchema, '粉丝数')));
           setField_(target, masterSchema, '代理', agent.name);
@@ -108,7 +111,7 @@ function runSync() {
           if (!clean_(getField_(target, masterSchema, '提报记录ID'))) {
             setField_(target, masterSchema, '提报记录ID', agent.name + '-' + Utilities.getUuid());
           }
-          updated++;
+          if (fieldsChanged_(before, target, masterSchema, AGENCY_FIELDS)) changed++;
         }
         ids[offset] = getField_(masterRows[pos], masterSchema, '提报记录ID');
       });
@@ -163,9 +166,10 @@ function runSync() {
       ).setValues(comments);
     });
 
-    writeStatus_(masterBook, new Date(), '成功', '新增 ' + added + ' 条；更新 ' + updated + ' 条');
+    const summary = '新增 ' + added + ' 条；实际变更 ' + changed + ' 条；核对 ' + checked + ' 条';
+    writeStatus_(masterBook, new Date(), '成功', summary);
     SpreadsheetApp.getActive().toast(
-      '同步完成：新增 ' + added + ' 条，更新 ' + updated + ' 条',
+      '同步完成：' + summary,
       'KOL名单同步',
       8
     );
@@ -273,9 +277,15 @@ function hasChildInput_(row, schema) {
 }
 
 function buildMatcher_(rows, schema, agentName) {
-  const matcher = {byUrl:{}, byName:{}, used:{}};
+  const matcher = {byFingerprint:{}, byRowUrl:{}, byRowName:{}, byUrl:{}, byName:{}, used:{}};
   rows.forEach(function(row, pos) {
     if (clean_(getField_(row, schema, '代理')) !== agentName) return;
+    const sourceRow = clean_(getField_(row, schema, '原始行号'));
+    addToMap_(matcher.byFingerprint, fingerprint_(row, schema), pos);
+    if (sourceRow) {
+      addToMap_(matcher.byRowUrl, sourceRow + '|' + urlKey_(row, schema), pos);
+      addToMap_(matcher.byRowName, sourceRow + '|' + nameKey_(row, schema), pos);
+    }
     addToMap_(matcher.byUrl, urlKey_(row, schema), pos);
     addToMap_(matcher.byName, nameKey_(row, schema), pos);
   });
@@ -284,6 +294,12 @@ function buildMatcher_(rows, schema, agentName) {
 
 function registerClaim_(matcher, masterRow, masterSchema, pos) {
   matcher.used[pos] = true;
+  const sourceRow = clean_(getField_(masterRow, masterSchema, '原始行号'));
+  addToMap_(matcher.byFingerprint, fingerprint_(masterRow, masterSchema), pos);
+  if (sourceRow) {
+    addToMap_(matcher.byRowUrl, sourceRow + '|' + urlKey_(masterRow, masterSchema), pos);
+    addToMap_(matcher.byRowName, sourceRow + '|' + nameKey_(masterRow, masterSchema), pos);
+  }
   addToMap_(matcher.byUrl, urlKey_(masterRow, masterSchema), pos);
   addToMap_(matcher.byName, nameKey_(masterRow, masterSchema), pos);
 }
@@ -294,12 +310,24 @@ function addToMap_(map, key, pos) {
   map[key].push(pos);
 }
 
-function claimMatch_(matcher, childRow, childSchema, masterSchema) {
+function claimMatch_(matcher, childRow, childSchema, masterSchema, sourceRow) {
   const masterShape = new Array(masterSchema.width).fill('');
   copyFields_(childRow, childSchema, masterShape, masterSchema, AGENCY_FIELDS);
+  const exactMatch = takeUnused_(matcher.byFingerprint[fingerprint_(masterShape, masterSchema)], matcher.used);
+  if (exactMatch !== undefined) return exactMatch;
+  const rowUrlMatch = takeUnused_(matcher.byRowUrl[sourceRow + '|' + urlKey_(masterShape, masterSchema)], matcher.used);
+  if (rowUrlMatch !== undefined) return rowUrlMatch;
+  const rowNameMatch = takeUnused_(matcher.byRowName[sourceRow + '|' + nameKey_(masterShape, masterSchema)], matcher.used);
+  if (rowNameMatch !== undefined) return rowNameMatch;
   const urlMatch = takeUnused_(matcher.byUrl[urlKey_(masterShape, masterSchema)], matcher.used);
   if (urlMatch !== undefined) return urlMatch;
   return takeUnused_(matcher.byName[nameKey_(masterShape, masterSchema)], matcher.used);
+}
+
+function fingerprint_(row, schema) {
+  return AGENCY_FIELDS.map(function(field) {
+    return comparableFieldValue_(getField_(row, schema, field), field);
+  }).join('\u001f');
 }
 
 function takeUnused_(positions, used) {
@@ -383,6 +411,30 @@ function compareRows_(a, b, schema) {
 
 function clean_(value) {
   return value == null ? '' : String(value).trim();
+}
+
+function fieldsChanged_(before, after, schema, fields) {
+  return fields.some(function(field) {
+    return comparableFieldValue_(getField_(before, schema, field), field) !==
+      comparableFieldValue_(getField_(after, schema, field), field);
+  });
+}
+
+function comparableFieldValue_(value, field) {
+  if (value == null || value === '') return '';
+  if (field === '提报日期') {
+    if (Object.prototype.toString.call(value) === '[object Date]') {
+      return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
+    if (typeof value === 'number' && isFinite(value)) {
+      return Utilities.formatDate(
+        new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000),
+        'UTC',
+        'yyyy-MM-dd'
+      );
+    }
+  }
+  return clean_(value);
 }
 
 function writeStatus_(book, time, status, details) {

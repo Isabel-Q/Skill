@@ -19,13 +19,16 @@ Candidate scope is always the same agency. Cross-agency matches are used only fo
 
 Matching priority:
 
-1. `platform + normalized URL`
-2. `country + platform + normalized KOL name`
-3. create a new record
+1. Complete canonical agency-field fingerprint
+2. `原始行号 + platform + normalized URL`
+3. `原始行号 + country + platform + normalized KOL name`
+4. `platform + normalized URL`
+5. `country + platform + normalized KOL name`
+6. create a new record
 
 Normalize URLs by trimming whitespace, lowercasing, removing protocol, leading `www.`, query/fragment, and trailing slash. Normalize text keys by trimming and lowercasing. Include platform in both keys.
 
-Claim each candidate once per run so repeated identical rows from one agency remain separate. For each matched/new child row, retain the master record ID in memory and use it for writeback after master sorting.
+Claim each candidate once per run so repeated identical rows from one agency remain separate. The fingerprint and source-row stages prevent two proposals for the same KOL from swapping identities on every run. For each matched/new child row, retain the master record ID in memory and use it for writeback after master sorting.
 
 Because agency sheets intentionally have no internal ID, simultaneous changes to platform, URL, country, and name can be interpreted as a new submission. Do not silently delete the unmatched old master record. Report this limitation in operational documentation.
 
@@ -50,7 +53,7 @@ Expose `runSync` through:
 
 Keep the visible button compact and place it beside or directly below the latest status block without covering the agency table. A cell-colored rectangle cannot execute Apps Script and must not be presented as a second button. Moving or resizing the assigned drawing must preserve its `runSync` assignment.
 
-The control sheet stores the latest timestamp, status, and `新增 N 条；更新 N 条`. Use a document lock to prevent simultaneous runs. Use no timed trigger by default.
+The control sheet stores the latest timestamp, status, and `新增 N 条；实际变更 N 条；核对 N 条`. Increment `核对` for every populated agency row examined. Increment `实际变更` only when a matched row's agency-maintained synchronized values differ after canonical comparison; do not count an unchanged row merely because the script rewrites it. Keep additions separate from actual changes. Use a document lock to prevent simultaneous runs. Use no timed trigger by default.
 
 ## OAuth recovery
 

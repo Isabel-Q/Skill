@@ -63,9 +63,11 @@ Generate Apps Script with [scripts/render_sync_script.py](scripts/render_sync_sc
 The matching priority must be:
 
 1. Limit candidates to the same agency.
-2. Match normalized `platform + account URL`.
-3. Fall back to normalized `country + platform + KOL name`.
-4. If neither matches, create a new master record and a new internal record ID.
+2. Match the complete canonical agency-field fingerprint when an unchanged duplicate submission exists.
+3. Match `原始行号 + identity` to keep multiple submissions of the same KOL stable.
+4. Match normalized `platform + account URL`.
+5. Fall back to normalized `country + platform + KOL name`.
+6. If none matches, create a new master record and a new internal record ID.
 
 Each master candidate may be claimed only once per sync. After matching, use the claimed internal record ID for that run's master-to-agency writeback.
 
@@ -90,8 +92,8 @@ Always verify:
 - deleting internal agency columns adjusts native table ranges, dropdowns, conditional formatting, and formulas
 - agency workbooks contain only `汇总名单` and `标准说明`, and their H/I header cells are orange with the master-owned note
 - `推进合作 = 是` colors the entire agency/master row light green
-- a test sync completes with zero unexpected additions and the expected update count
+- a test sync completes with zero unexpected additions, the expected checked-row count, and only genuinely changed matched rows counted as actual changes
 - internal fields and other-agency information are absent from every agency-facing workbook
-- the control sheet reports the last sync time, success/failure, additions, and updates
+- the control sheet reports the last sync time, success/failure, additions, actual changes, and checked rows
 
 If OAuth is blocked, follow the bounded recovery in the sync contract. Do not weaken account security controls or publish the application externally merely to bypass the warning.
